@@ -819,6 +819,13 @@ fn can_create_new_file(disk_path: &Path) -> Result<bool, CheckoutError> {
 
 const RESERVED_DIR_NAMES: &[&str] = &[".git", ".jj"];
 
+fn reserved_dir_names() -> impl Iterator<Item = &'static str> {
+    RESERVED_DIR_NAMES
+        .iter()
+        .copied()
+        .chain(crate::workspace::jj_dir_name_override())
+}
+
 fn file_identity_from_symlink_path(disk_path: &Path) -> io::Result<Option<FileIdentity>> {
     match FileIdentity::from_symlink_path(disk_path) {
         Ok(identity) => Ok(Some(identity)),
@@ -883,7 +890,7 @@ fn reject_reserved_existing_file_identity(
     disk_path: &Path,
 ) -> Result<(), CheckoutError> {
     let parent_dir_path = disk_path.parent().expect("content path shouldn't be root");
-    for name in RESERVED_DIR_NAMES {
+    for name in reserved_dir_names() {
         let reserved_path = parent_dir_path.join(name);
 
         let Some(reserved_identity) =
@@ -1613,7 +1620,7 @@ impl FileSnapshotter<'_> {
             }
         };
 
-        if RESERVED_DIR_NAMES.contains(&name_string.as_str()) {
+        if reserved_dir_names().any(|name| name == name_string) {
             return Ok(None);
         }
         let name = RepoPathComponent::new(&name_string).unwrap();
@@ -1635,7 +1642,7 @@ impl FileSnapshotter<'_> {
             // See https://github.com/jj-vcs/jj/issues/4349.
             // To solve this, we ignore all nested repos entirely.
             let disk_dir = entry.path();
-            for &name in RESERVED_DIR_NAMES {
+            for name in reserved_dir_names() {
                 if disk_dir.join(name).symlink_metadata().is_ok() {
                     return Ok(None);
                 }

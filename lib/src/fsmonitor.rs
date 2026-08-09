@@ -317,7 +317,11 @@ pub mod watchman {
         /// Build an exclude expr for `working_copy_path`.
         fn build_exclude_expr(&self) -> expr::Expr {
             // TODO: consider parsing `.gitignore`.
-            let exclude_dirs = [Path::new(".git"), Path::new(".jj")];
+            let exclude_dirs: Vec<&Path> = [".git", ".jj"]
+                .into_iter()
+                .chain(crate::workspace::jj_dir_name_override())
+                .map(Path::new)
+                .collect();
             let excludes = itertools::chain(
                 // the directories themselves
                 [expr::Expr::Name(expr::NameTerm {

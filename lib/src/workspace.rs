@@ -20,6 +20,7 @@ use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use thiserror::Error;
 
@@ -118,8 +119,29 @@ pub struct Workspace {
     working_copy: Box<dyn WorkingCopy>,
 }
 
+static JJ_DIR_NAME_OVERRIDE: OnceLock<String> = OnceLock::new();
+
+/// Renames the `.jj` directory for all workspaces in this process.
+///
+/// `name` is a single directory name placed directly in the workspace root, and
+/// joins `.git`/`.jj` in the reserved names that are never tracked. This must
+/// be called before any workspace is initialized or loaded; later calls are
+/// ignored.
+pub fn set_jj_dir_name(name: String) {
+    assert!(!name.is_empty());
+    JJ_DIR_NAME_OVERRIDE.set(name).ok();
+}
+
+pub(crate) fn jj_dir_name_override() -> Option<&'static str> {
+    JJ_DIR_NAME_OVERRIDE.get().map(String::as_str)
+}
+
+fn jj_dir(workspace_root: &Path) -> PathBuf {
+    workspace_root.join(jj_dir_name_override().unwrap_or(".jj"))
+}
+
 fn create_jj_dir(workspace_root: &Path) -> Result<PathBuf, WorkspaceInitError> {
-    let jj_dir = workspace_root.join(".jj");
+    let jj_dir = jj_dir(workspace_root);
     match std::fs::create_dir(&jj_dir).context(&jj_dir) {
         Ok(()) => Ok(jj_dir),
         Err(e) if e.source.kind() == io::ErrorKind::AlreadyExists => {
@@ -566,7 +588,7 @@ pub type WorkingCopyFactories = HashMap<String, Box<dyn WorkingCopyFactory>>;
 
 impl DefaultWorkspaceLoader {
     pub fn new(workspace_root: &Path) -> Result<Self, WorkspaceLoadError> {
-        let jj_dir = workspace_root.join(".jj");
+        let jj_dir = jj_dir(workspace_root);
         if !jj_dir.is_dir() {
             return Err(WorkspaceLoadError::NoWorkspaceHere(
                 workspace_root.to_owned(),
