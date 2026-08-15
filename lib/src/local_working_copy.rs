@@ -826,6 +826,28 @@ fn reserved_dir_names() -> impl Iterator<Item = &'static str> {
         .chain(crate::workspace::jj_dir_name_override())
 }
 
+const IGNORE_FILE_NAMES: &[&str] = &[".gitignore"];
+
+static EXTRA_IGNORE_FILE_NAME: OnceLock<String> = OnceLock::new();
+
+/// Reads one more ignore file per directory, in addition to `.gitignore`, in
+/// every working copy in this process.
+///
+/// `name` is a file name looked up in each directory being snapshotted, and its
+/// patterns win over the ones in `.gitignore` of the same directory. This must
+/// be called before any working copy is snapshotted; later calls are ignored.
+pub fn set_extra_ignore_file_name(name: String) {
+    assert!(!name.is_empty());
+    EXTRA_IGNORE_FILE_NAME.set(name).ok();
+}
+
+fn ignore_file_names() -> impl Iterator<Item = &'static str> {
+    IGNORE_FILE_NAMES
+        .iter()
+        .copied()
+        .chain(EXTRA_IGNORE_FILE_NAME.get().map(String::as_str))
+}
+
 fn file_identity_from_symlink_path(disk_path: &Path) -> io::Result<Option<FileIdentity>> {
     match FileIdentity::from_symlink_path(disk_path) {
         Ok(identity) => Ok(Some(identity)),
@@ -1464,13 +1486,14 @@ impl TreeState {
                             .iter()
                             .filter_map(|path| RepoPathBuf::from_relative_path(path).ok())
                             .collect_vec();
-                        // .gitignore changes require rescanning parent directories to pick up newly
-                        // unignored files.
+                        // Ignore file changes require rescanning parent directories to pick up
+                        // newly unignored files.
                         let gitignore_prefixes = repo_paths
                             .iter()
                             .filter_map(|repo_path| {
                                 let (parent, basename) = repo_path.split()?;
-                                (basename.as_internal_str() == ".gitignore")
+                                ignore_file_names()
+                                    .any(|name| name == basename.as_internal_str())
                                     .then(|| parent.to_owned())
                             })
                             .collect_vec();
@@ -1570,7 +1593,9 @@ impl FileSnapshotter<'_> {
             file_states,
         } = directory_to_visit;
 
-        let git_ignore = git_ignore.chain_with_file(&dir, disk_dir.join(".gitignore"))?;
+        let git_ignore = ignore_file_names().try_fold(git_ignore, |git_ignore, name| {
+            git_ignore.chain_with_file(&dir, disk_dir.join(name))
+        })?;
         let dir_entries: Vec<_> = disk_dir
             .read_dir()
             .and_then(|entries| entries.try_collect())
