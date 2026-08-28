@@ -2028,9 +2028,7 @@ impl FileSnapshotter<'_> {
         disk_path: &Path,
     ) -> Result<FileId, SnapshotError> {
         match self.tree_state.target_eol_strategy.eol_conversion_mode {
-            EolConversionMode::None => {
-                Ok(self.store().copy_file_from_disk(path, disk_path).await?)
-            }
+            EolConversionMode::None => Ok(self.store().copy_file_from(path, disk_path).await?),
             EolConversionMode::Input | EolConversionMode::InputOutput => {
                 let file = File::open(disk_path).map_err(|err| SnapshotError::Other {
                     message: format!("Failed to open file {}", disk_path.display()),
@@ -2403,10 +2401,8 @@ impl TreeState {
                         ExecBit::new_from_repo(file.executable, self.exec_policy, get_prev_exec);
                     match self.target_eol_strategy.eol_conversion_mode {
                         EolConversionMode::None | EolConversionMode::Input => {
-                            let metadata = self
-                                .store
-                                .copy_file_to_disk(&path, &file.id, &disk_path)
-                                .await?;
+                            let metadata =
+                                self.store.copy_file_to(&path, &file.id, &disk_path).await?;
                             set_executable(exec_bit, &disk_path)
                                 .map_err(|err| checkout_error_for_stat_error(err, &disk_path))?;
                             FileState::for_file(exec_bit, metadata.len(), &metadata).map_err(

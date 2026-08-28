@@ -246,21 +246,17 @@ impl Store {
         self.backend.write_file(path, contents).await
     }
 
-    pub async fn copy_file_to_disk(
+    pub async fn copy_file_to(
         &self,
         path: &RepoPath,
         id: &FileId,
-        disk_path: &Path,
+        destination: &Path,
     ) -> BackendResult<Metadata> {
-        self.backend.copy_file_to_disk(path, id, disk_path).await
+        self.backend.copy_file_to(path, id, destination).await
     }
 
-    pub async fn copy_file_from_disk(
-        &self,
-        path: &RepoPath,
-        disk_path: &Path,
-    ) -> BackendResult<FileId> {
-        self.backend.copy_file_from_disk(path, disk_path).await
+    pub async fn copy_file_from(&self, path: &RepoPath, source: &Path) -> BackendResult<FileId> {
+        self.backend.copy_file_from(path, source).await
     }
 
     pub async fn read_symlink(&self, path: &RepoPath, id: &SymlinkId) -> BackendResult<String> {

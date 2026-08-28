@@ -598,46 +598,42 @@ pub trait Backend: Any + Send + Sync + Debug {
         contents: &mut (dyn AsyncRead + Send + Unpin),
     ) -> BackendResult<FileId>;
 
-    /// Copies a file from the backend to a new file at `disk_path`, byte for
+    /// Copies a file from the backend to a new file at `destination`, byte for
     /// byte. Returns the metadata of the file that was created.
     ///
     /// The file must be created without following symlinks, and the call must
-    /// fail if anything already exists at `disk_path`. The caller relies on
+    /// fail if anything already exists at `destination`. The caller relies on
     /// that to keep from clobbering a file it has not accounted for.
     ///
     /// The default implementation streams the contents through
     /// [`Backend::read_file()`]. A backend that keeps file contents as files on
     /// the local file system may override this to clone the file instead.
-    async fn copy_file_to_disk(
+    async fn copy_file_to(
         &self,
         path: &RepoPath,
         id: &FileId,
-        disk_path: &Path,
+        destination: &Path,
     ) -> BackendResult<Metadata> {
         let contents = self.read_file(path, id).await?;
         let mut file = File::options()
             .write(true)
             .create_new(true)
-            .open(disk_path)
-            .context(disk_path)?;
+            .open(destination)
+            .context(destination)?;
         copy_async_to_sync(contents, &mut file)
             .await
-            .context(disk_path)?;
-        Ok(file.metadata().context(disk_path)?)
+            .context(destination)?;
+        Ok(file.metadata().context(destination)?)
     }
 
-    /// Copies the file at `disk_path` into the backend, byte for byte. Returns
-    /// the ID of the written file.
+    /// Copies the file at `source` into the backend, byte for byte. Returns the
+    /// ID of the written file.
     ///
     /// The default implementation streams the file through
     /// [`Backend::write_file()`]. A backend that keeps file contents as files
     /// on the local file system may override this to clone the file instead.
-    async fn copy_file_from_disk(
-        &self,
-        path: &RepoPath,
-        disk_path: &Path,
-    ) -> BackendResult<FileId> {
-        let file = File::open(disk_path).context(disk_path)?;
+    async fn copy_file_from(&self, path: &RepoPath, source: &Path) -> BackendResult<FileId> {
+        let file = File::open(source).context(source)?;
         self.write_file(path, &mut AllowStdIo::new(file)).await
     }
 
