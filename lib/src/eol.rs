@@ -39,7 +39,7 @@ fn is_binary(bytes: &[u8]) -> bool {
 
 #[derive(Clone)]
 pub(crate) struct TargetEolStrategy {
-    eol_conversion_mode: EolConversionMode,
+    pub(crate) eol_conversion_mode: EolConversionMode,
 }
 
 impl TargetEolStrategy {

@@ -16,7 +16,9 @@
 
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::fs::Metadata;
 use std::num::NonZeroUsize;
+use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -242,6 +244,23 @@ impl Store {
         contents: &mut (dyn AsyncRead + Send + Unpin),
     ) -> BackendResult<FileId> {
         self.backend.write_file(path, contents).await
+    }
+
+    pub async fn copy_file_to_disk(
+        &self,
+        path: &RepoPath,
+        id: &FileId,
+        disk_path: &Path,
+    ) -> BackendResult<Metadata> {
+        self.backend.copy_file_to_disk(path, id, disk_path).await
+    }
+
+    pub async fn copy_file_from_disk(
+        &self,
+        path: &RepoPath,
+        disk_path: &Path,
+    ) -> BackendResult<FileId> {
+        self.backend.copy_file_from_disk(path, disk_path).await
     }
 
     pub async fn read_symlink(&self, path: &RepoPath, id: &SymlinkId) -> BackendResult<String> {

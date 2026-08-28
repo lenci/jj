@@ -17,6 +17,9 @@
 
 use std::any::Any;
 use std::fmt::Debug;
+use std::fs::File;
+use std::fs::Metadata;
+use std::path::Path;
 use std::pin::Pin;
 use std::slice;
 use std::time::SystemTime;
@@ -24,10 +27,14 @@ use std::time::SystemTime;
 use async_trait::async_trait;
 use chrono::TimeZone as _;
 use futures::AsyncRead;
+use futures::io::AllowStdIo;
 use futures::stream::BoxStream;
 use thiserror::Error;
 
 use crate::content_hash::ContentHash;
+use crate::file_util::IoResultExt as _;
+use crate::file_util::PathError;
+use crate::file_util::copy_async_to_sync;
 use crate::hex_util;
 use crate::index::Index;
 use crate::merge::Merge;
@@ -382,6 +389,12 @@ pub enum BackendError {
     Unsupported(String),
 }
 
+impl From<PathError> for BackendError {
+    fn from(err: PathError) -> Self {
+        Self::Other(err.into())
+    }
+}
+
 /// A specialized [`Result`] type for commit backend errors.
 pub type BackendResult<T> = Result<T, BackendError>;
 
@@ -584,6 +597,49 @@ pub trait Backend: Any + Send + Sync + Debug {
         path: &RepoPath,
         contents: &mut (dyn AsyncRead + Send + Unpin),
     ) -> BackendResult<FileId>;
+
+    /// Copies a file from the backend to a new file at `disk_path`, byte for
+    /// byte. Returns the metadata of the file that was created.
+    ///
+    /// The file must be created without following symlinks, and the call must
+    /// fail if anything already exists at `disk_path`. The caller relies on
+    /// that to keep from clobbering a file it has not accounted for.
+    ///
+    /// The default implementation streams the contents through
+    /// [`Backend::read_file()`]. A backend that keeps file contents as files on
+    /// the local file system may override this to clone the file instead.
+    async fn copy_file_to_disk(
+        &self,
+        path: &RepoPath,
+        id: &FileId,
+        disk_path: &Path,
+    ) -> BackendResult<Metadata> {
+        let contents = self.read_file(path, id).await?;
+        let mut file = File::options()
+            .write(true)
+            .create_new(true)
+            .open(disk_path)
+            .context(disk_path)?;
+        copy_async_to_sync(contents, &mut file)
+            .await
+            .context(disk_path)?;
+        Ok(file.metadata().context(disk_path)?)
+    }
+
+    /// Copies the file at `disk_path` into the backend, byte for byte. Returns
+    /// the ID of the written file.
+    ///
+    /// The default implementation streams the file through
+    /// [`Backend::write_file()`]. A backend that keeps file contents as files
+    /// on the local file system may override this to clone the file instead.
+    async fn copy_file_from_disk(
+        &self,
+        path: &RepoPath,
+        disk_path: &Path,
+    ) -> BackendResult<FileId> {
+        let file = File::open(disk_path).context(disk_path)?;
+        self.write_file(path, &mut AllowStdIo::new(file)).await
+    }
 
     /// Reads the target of a symlink from the backend. Returns the target path.
     /// It is not a `RepoPath` because it doesn't necessarily point within the

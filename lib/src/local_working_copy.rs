@@ -2027,20 +2027,27 @@ impl FileSnapshotter<'_> {
         path: &RepoPath,
         disk_path: &Path,
     ) -> Result<FileId, SnapshotError> {
-        let file = File::open(disk_path).map_err(|err| SnapshotError::Other {
-            message: format!("Failed to open file {}", disk_path.display()),
-            err: err.into(),
-        })?;
-        let mut contents = self
-            .tree_state
-            .target_eol_strategy
-            .convert_eol_for_snapshot(AllowStdIo::new(file))
-            .await
-            .map_err(|err| SnapshotError::Other {
-                message: "Failed to convert the EOL".to_string(),
-                err: err.into(),
-            })?;
-        Ok(self.store().write_file(path, &mut contents).await?)
+        match self.tree_state.target_eol_strategy.eol_conversion_mode {
+            EolConversionMode::None => {
+                Ok(self.store().copy_file_from_disk(path, disk_path).await?)
+            }
+            EolConversionMode::Input | EolConversionMode::InputOutput => {
+                let file = File::open(disk_path).map_err(|err| SnapshotError::Other {
+                    message: format!("Failed to open file {}", disk_path.display()),
+                    err: err.into(),
+                })?;
+                let mut contents = self
+                    .tree_state
+                    .target_eol_strategy
+                    .convert_eol_for_snapshot(AllowStdIo::new(file))
+                    .await
+                    .map_err(|err| SnapshotError::Other {
+                        message: "Failed to convert the EOL".to_string(),
+                        err: err.into(),
+                    })?;
+                Ok(self.store().write_file(path, &mut contents).await?)
+            }
+        }
     }
 
     async fn write_symlink_to_store(
@@ -2394,8 +2401,23 @@ impl TreeState {
                 MaterializedTreeValue::File(file) => {
                     let exec_bit =
                         ExecBit::new_from_repo(file.executable, self.exec_policy, get_prev_exec);
-                    self.write_file(&disk_path, file.reader, exec_bit, true)
-                        .await?
+                    match self.target_eol_strategy.eol_conversion_mode {
+                        EolConversionMode::None | EolConversionMode::Input => {
+                            let metadata = self
+                                .store
+                                .copy_file_to_disk(&path, &file.id, &disk_path)
+                                .await?;
+                            set_executable(exec_bit, &disk_path)
+                                .map_err(|err| checkout_error_for_stat_error(err, &disk_path))?;
+                            FileState::for_file(exec_bit, metadata.len(), &metadata).map_err(
+                                |err| checkout_error_for_mtime_out_of_range(err, &disk_path),
+                            )?
+                        }
+                        EolConversionMode::InputOutput => {
+                            self.write_file(&disk_path, file.reader, exec_bit, true)
+                                .await?
+                        }
+                    }
                 }
                 MaterializedTreeValue::Symlink { id: _, target } => {
                     if self.symlink_support {
