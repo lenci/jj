@@ -384,11 +384,11 @@ pub async fn closest_common_ancestors(
 pub struct ReparentStats {
     /// New head operation ids in order of the old `head_ops`.
     pub new_head_ids: Vec<OperationId>,
-    /// The number of rewritten operations.
-    pub rewritten_count: usize,
-    /// The number of ancestor operations that become unreachable from the
-    /// rewritten heads.
-    pub unreachable_count: usize,
+    /// The new operation id of each rewritten operation, keyed by its old id.
+    pub rewritten_ids: HashMap<OperationId, OperationId>,
+    /// The ancestor operations that become unreachable from the rewritten
+    /// heads.
+    pub unreachable_ids: Vec<OperationId>,
 }
 
 /// Reparents the operation range `root_ops..head_ops` onto the `dest_op`.
@@ -409,8 +409,9 @@ pub async fn reparent_range(
     let ops_to_reparent: Vec<_> = walk_ancestors_range(head_ops, root_ops)
         .try_collect()
         .await?;
-    let unreachable_count = walk_ancestors_range(root_ops, slice::from_ref(dest_op))
-        .try_fold(0, |acc, _| async move { Ok(acc + 1) })
+    let unreachable_ids: Vec<_> = walk_ancestors_range(root_ops, slice::from_ref(dest_op))
+        .map_ok(|op| op.id().clone())
+        .try_collect()
         .await?;
 
     assert!(
@@ -441,7 +442,7 @@ pub async fn reparent_range(
         .collect();
     Ok(ReparentStats {
         new_head_ids,
-        rewritten_count: rewritten_ids.len(),
-        unreachable_count,
+        rewritten_ids,
+        unreachable_ids,
     })
 }

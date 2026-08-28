@@ -125,8 +125,8 @@ pub async fn cmd_op_abandon(
     writeln!(
         ui.status(),
         "Abandoned {} operations and reparented {} descendant operations.",
-        stats.unreachable_count,
-        stats.rewritten_count,
+        stats.unreachable_ids.len(),
+        stats.rewritten_ids.len(),
     )?;
     for (old, new_id) in reparented_head_ops().filter(|&(old, new_id)| old.id() != new_id) {
         op_heads_store

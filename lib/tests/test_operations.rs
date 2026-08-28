@@ -307,8 +307,8 @@ fn test_reparent_range_linear() -> TestResult {
     )
     .block_on()?;
     assert_eq!(stats.new_head_ids.len(), 1);
-    assert_eq!(stats.rewritten_count, 2);
-    assert_eq!(stats.unreachable_count, 1);
+    assert_eq!(stats.rewritten_ids.len(), 2);
+    assert_eq!(stats.unreachable_ids.len(), 1);
     let new_op_d = read_op(&stats.new_head_ids[0]);
     assert_eq!(new_op_d.metadata(), repo_d.operation().metadata());
     assert_eq!(new_op_d.view_id(), repo_d.operation().view_id());
@@ -326,8 +326,8 @@ fn test_reparent_range_linear() -> TestResult {
     )
     .block_on()?;
     assert_eq!(stats.new_head_ids, vec![repo_a.op_id().clone()]);
-    assert_eq!(stats.rewritten_count, 0);
-    assert_eq!(stats.unreachable_count, 3);
+    assert_eq!(stats.rewritten_ids.len(), 0);
+    assert_eq!(stats.unreachable_ids.len(), 3);
     Ok(())
 }
 
@@ -387,8 +387,8 @@ fn test_reparent_range_branchy() -> TestResult {
     )
     .block_on()?;
     assert_eq!(stats.new_head_ids.len(), 1);
-    assert_eq!(stats.rewritten_count, 3);
-    assert_eq!(stats.unreachable_count, 2);
+    assert_eq!(stats.rewritten_ids.len(), 3);
+    assert_eq!(stats.unreachable_ids.len(), 2);
     let new_op_g = read_op(&stats.new_head_ids[0]);
     assert_eq!(new_op_g.metadata(), repo_g.operation().metadata());
     assert_eq!(new_op_g.view_id(), repo_g.operation().view_id());
@@ -414,8 +414,8 @@ fn test_reparent_range_branchy() -> TestResult {
     )
     .block_on()?;
     assert_eq!(stats.new_head_ids.len(), 1);
-    assert_eq!(stats.rewritten_count, 5);
-    assert_eq!(stats.unreachable_count, 1);
+    assert_eq!(stats.rewritten_ids.len(), 5);
+    assert_eq!(stats.unreachable_ids.len(), 1);
     let new_op_g = read_op(&stats.new_head_ids[0]);
     assert_eq!(new_op_g.metadata(), repo_g.operation().metadata());
     assert_eq!(new_op_g.view_id(), repo_g.operation().view_id());
@@ -440,8 +440,8 @@ fn test_reparent_range_branchy() -> TestResult {
     )
     .block_on()?;
     assert_eq!(stats.new_head_ids.len(), 1);
-    assert_eq!(stats.rewritten_count, 1);
-    assert_eq!(stats.unreachable_count, 2);
+    assert_eq!(stats.rewritten_ids.len(), 1);
+    assert_eq!(stats.unreachable_ids.len(), 2);
     let new_op_g = read_op(&stats.new_head_ids[0]);
     assert_eq!(new_op_g.metadata(), repo_g.operation().metadata());
     assert_eq!(new_op_g.view_id(), repo_g.operation().view_id());
@@ -462,8 +462,8 @@ fn test_reparent_range_branchy() -> TestResult {
     )
     .block_on()?;
     assert_eq!(stats.new_head_ids.len(), 1);
-    assert_eq!(stats.rewritten_count, 1);
-    assert_eq!(stats.unreachable_count, 0);
+    assert_eq!(stats.rewritten_ids.len(), 1);
+    assert_eq!(stats.unreachable_ids.len(), 0);
     let new_op_f = read_op(&stats.new_head_ids[0]);
     assert_eq!(new_op_f.metadata(), op_f.metadata());
     assert_eq!(new_op_f.view_id(), op_f.view_id());
@@ -557,8 +557,8 @@ fn test_reparent_discarding_predecessors() -> TestResult {
     )
     .block_on()?;
     assert_eq!(stats.new_head_ids.len(), 1);
-    assert_eq!(stats.rewritten_count, 3);
-    assert_eq!(stats.unreachable_count, 1);
+    assert_eq!(stats.rewritten_ids.len(), 3);
+    assert_eq!(stats.unreachable_ids.len(), 1);
     let repo = repo_at(&stats.new_head_ids[0]);
     // A0 - B0 are still reachable
     assert!(index_has_id(repo.index(), commit_a0.id()));
@@ -583,8 +583,8 @@ fn test_reparent_discarding_predecessors() -> TestResult {
     )
     .block_on()?;
     assert_eq!(stats.new_head_ids.len(), 1);
-    assert_eq!(stats.rewritten_count, 2);
-    assert_eq!(stats.unreachable_count, 2);
+    assert_eq!(stats.rewritten_ids.len(), 2);
+    assert_eq!(stats.unreachable_ids.len(), 2);
     let repo = repo_at(&stats.new_head_ids[0]);
     // A0 is still reachable
     assert!(index_has_id(repo.index(), commit_a0.id()));
@@ -604,8 +604,8 @@ fn test_reparent_discarding_predecessors() -> TestResult {
     )
     .block_on()?;
     assert_eq!(stats.new_head_ids.len(), 1);
-    assert_eq!(stats.rewritten_count, 1);
-    assert_eq!(stats.unreachable_count, 3);
+    assert_eq!(stats.rewritten_ids.len(), 1);
+    assert_eq!(stats.unreachable_ids.len(), 3);
     let repo = repo_at(&stats.new_head_ids[0]);
     // A0 is no longer reachable
     assert!(!index_has_id(repo.index(), commit_a0.id()));
