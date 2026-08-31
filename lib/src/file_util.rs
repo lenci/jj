@@ -18,15 +18,23 @@ use std::borrow::Cow;
 use std::ffi::OsString;
 use std::fs;
 use std::fs::File;
+#[cfg(target_os = "macos")]
+use std::fs::FileTimes;
 use std::io;
 use std::io::ErrorKind;
 use std::io::Write;
 use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
+#[cfg(target_os = "macos")]
+use std::time::SystemTime;
 
 use futures::AsyncRead;
 use futures::AsyncReadExt as _;
+#[cfg(target_os = "macos")]
+use nix::sys::stat::FileFlag;
+#[cfg(target_os = "macos")]
+use nix::unistd::chflags;
 use tempfile::NamedTempFile;
 use tempfile::PersistError;
 use thiserror::Error;
@@ -217,6 +225,40 @@ fn to_slash_separated(path: &Path) -> OsString {
         buf.push(c);
     }
     buf
+}
+
+/// Clones the file contents at `source` to `destination` without carrying
+/// over the source's metadata: the destination ends up as if it had been
+/// freshly written, with cleared file flags, no extended attributes, and the
+/// current time as its modification time. Only macOS clones metadata along
+/// with the contents, so only there is any scrubbing needed; the clone
+/// implementations on other platforms create the destination fresh. If
+/// cloning is unsupported or any step fails, nothing is left at
+/// `destination`.
+pub fn clone_file_contents(source: &Path, destination: &Path) -> io::Result<()> {
+    reflink_copy::reflink(source, destination)?;
+    #[cfg(target_os = "macos")]
+    {
+        let scrubbed = (|| {
+            chflags(destination, FileFlag::empty()).map_err(io::Error::from)?;
+            match xattr::list(destination) {
+                Ok(attribute_names) => {
+                    for attribute_name in attribute_names {
+                        xattr::remove(destination, &attribute_name)?;
+                    }
+                }
+                Err(error) if error.kind() == ErrorKind::Unsupported => {}
+                Err(error) => return Err(error),
+            }
+            File::open(destination)?.set_times(FileTimes::new().set_modified(SystemTime::now()))
+        })();
+        if scrubbed.is_err() {
+            fs::remove_file(destination).ok();
+        }
+        scrubbed?;
+    }
+
+    Ok(())
 }
 
 /// Persists the temporary file after synchronizing the content.

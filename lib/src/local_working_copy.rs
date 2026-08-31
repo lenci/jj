@@ -83,6 +83,7 @@ pub use crate::eol::EolConversionMode;
 use crate::eol::TargetEolStrategy;
 use crate::file_util::FileIdentity;
 use crate::file_util::check_symlink_support;
+use crate::file_util::clone_file_contents;
 use crate::file_util::copy_async_to_sync;
 use crate::file_util::persist_temp_file;
 use crate::file_util::symlink_file;
@@ -2027,9 +2028,25 @@ impl FileSnapshotter<'_> {
         path: &RepoPath,
         disk_path: &Path,
     ) -> Result<FileId, SnapshotError> {
-        match self.tree_state.target_eol_strategy.eol_conversion_mode {
-            EolConversionMode::None => Ok(self.store().copy_file_from(path, disk_path).await?),
-            EolConversionMode::Input | EolConversionMode::InputOutput => {
+        let cloned_file_id = match self.tree_state.target_eol_strategy.eol_conversion_mode {
+            EolConversionMode::None if self.store().stores_files() => {
+                let incoming_file_path = self.store().incoming_file_path().await?;
+                match clone_file_contents(disk_path, &incoming_file_path) {
+                    Ok(()) => Some(
+                        self.store()
+                            .persist_incoming_file(path, incoming_file_path)
+                            .await?,
+                    ),
+                    Err(_) => None,
+                }
+            }
+            EolConversionMode::None | EolConversionMode::Input | EolConversionMode::InputOutput => {
+                None
+            }
+        };
+        match cloned_file_id {
+            Some(file_id) => Ok(file_id),
+            None => {
                 let file = File::open(disk_path).map_err(|err| SnapshotError::Other {
                     message: format!("Failed to open file {}", disk_path.display()),
                     err: err.into(),
@@ -2400,16 +2417,33 @@ impl TreeState {
                     let exec_bit =
                         ExecBit::new_from_repo(file.executable, self.exec_policy, get_prev_exec);
                     match self.target_eol_strategy.eol_conversion_mode {
-                        EolConversionMode::None | EolConversionMode::Input => {
-                            let metadata =
-                                self.store.copy_file_to(&path, &file.id, &disk_path).await?;
-                            set_executable(exec_bit, &disk_path)
-                                .map_err(|err| checkout_error_for_stat_error(err, &disk_path))?;
-                            FileState::for_file(exec_bit, metadata.len(), &metadata).map_err(
-                                |err| checkout_error_for_mtime_out_of_range(err, &disk_path),
-                            )?
+                        EolConversionMode::None | EolConversionMode::Input
+                            if self.store.stores_files() =>
+                        {
+                            let stored_file_path =
+                                self.store.stored_file_path(&path, &file.id).await?;
+                            match clone_file_contents(&stored_file_path, &disk_path) {
+                                Ok(()) => {
+                                    set_executable(exec_bit, &disk_path).map_err(|err| {
+                                        checkout_error_for_stat_error(err, &disk_path)
+                                    })?;
+                                    let metadata = disk_path.symlink_metadata().map_err(|err| {
+                                        checkout_error_for_stat_error(err, &disk_path)
+                                    })?;
+                                    FileState::for_file(exec_bit, metadata.len(), &metadata)
+                                        .map_err(|err| {
+                                            checkout_error_for_mtime_out_of_range(err, &disk_path)
+                                        })?
+                                }
+                                Err(_) => {
+                                    self.write_file(&disk_path, file.reader, exec_bit, true)
+                                        .await?
+                                }
+                            }
                         }
-                        EolConversionMode::InputOutput => {
+                        EolConversionMode::None
+                        | EolConversionMode::Input
+                        | EolConversionMode::InputOutput => {
                             self.write_file(&disk_path, file.reader, exec_bit, true)
                                 .await?
                         }

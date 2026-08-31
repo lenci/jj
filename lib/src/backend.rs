@@ -17,9 +17,7 @@
 
 use std::any::Any;
 use std::fmt::Debug;
-use std::fs::File;
-use std::fs::Metadata;
-use std::path::Path;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::slice;
 use std::time::SystemTime;
@@ -27,14 +25,11 @@ use std::time::SystemTime;
 use async_trait::async_trait;
 use chrono::TimeZone as _;
 use futures::AsyncRead;
-use futures::io::AllowStdIo;
 use futures::stream::BoxStream;
 use thiserror::Error;
 
 use crate::content_hash::ContentHash;
-use crate::file_util::IoResultExt as _;
 use crate::file_util::PathError;
-use crate::file_util::copy_async_to_sync;
 use crate::hex_util;
 use crate::index::Index;
 use crate::merge::Merge;
@@ -598,43 +593,51 @@ pub trait Backend: Any + Send + Sync + Debug {
         contents: &mut (dyn AsyncRead + Send + Unpin),
     ) -> BackendResult<FileId>;
 
-    /// Copies a file from the backend to a new file at `destination`, byte for
-    /// byte. Returns the metadata of the file that was created.
-    ///
-    /// The file must be created without following symlinks, and the call must
-    /// fail if anything already exists at `destination`. The caller relies on
-    /// that to keep from clobbering a file it has not accounted for.
-    ///
-    /// The default implementation streams the contents through
-    /// [`Backend::read_file()`]. A backend that keeps file contents as files on
-    /// the local file system may override this to clone the file instead.
-    async fn copy_file_to(
-        &self,
-        path: &RepoPath,
-        id: &FileId,
-        destination: &Path,
-    ) -> BackendResult<Metadata> {
-        let contents = self.read_file(path, id).await?;
-        let mut file = File::options()
-            .write(true)
-            .create_new(true)
-            .open(destination)
-            .context(destination)?;
-        copy_async_to_sync(contents, &mut file)
-            .await
-            .context(destination)?;
-        Ok(file.metadata().context(destination)?)
+    /// Whether this backend stores file contents as files on the file system,
+    /// so that their paths can be handed out and files can be handed in.
+    fn stores_files(&self) -> bool {
+        false
     }
 
-    /// Copies the file at `source` into the backend, byte for byte. Returns the
-    /// ID of the written file.
+    /// Returns the path of the stored file holding the given file's contents,
+    /// first fetching the contents onto the file system if needed. The file
+    /// at the returned path must not be modified.
     ///
-    /// The default implementation streams the file through
-    /// [`Backend::write_file()`]. A backend that keeps file contents as files
-    /// on the local file system may override this to clone the file instead.
-    async fn copy_file_from(&self, path: &RepoPath, source: &Path) -> BackendResult<FileId> {
-        let file = File::open(source).context(source)?;
-        self.write_file(path, &mut AllowStdIo::new(file)).await
+    /// Only supported when [`Backend::stores_files()`] returns true.
+    async fn stored_file_path(&self, _path: &RepoPath, _id: &FileId) -> BackendResult<PathBuf> {
+        Err(BackendError::Unsupported(
+            "the backend does not store file contents as files".to_string(),
+        ))
+    }
+
+    /// Returns the path where the contents of a file being written into the
+    /// backend go, typically placed there by cloning. Each call allocates a
+    /// fresh path on the backend's volume with nothing at it. The caller
+    /// either hands the file it creates there to
+    /// [`Backend::persist_incoming_file()`] or abandons it to the backend's
+    /// cleanup.
+    ///
+    /// Only supported when [`Backend::stores_files()`] returns true.
+    async fn incoming_file_path(&self) -> BackendResult<PathBuf> {
+        Err(BackendError::Unsupported(
+            "the backend does not keep file contents as local files".to_string(),
+        ))
+    }
+
+    /// Takes ownership of the incoming file at `incoming_file_path`,
+    /// previously created at a path returned by
+    /// [`Backend::incoming_file_path()`], and stores its contents. Returns
+    /// the ID of the written file.
+    ///
+    /// Only supported when [`Backend::stores_files()`] returns true.
+    async fn persist_incoming_file(
+        &self,
+        _path: &RepoPath,
+        _incoming_file_path: PathBuf,
+    ) -> BackendResult<FileId> {
+        Err(BackendError::Unsupported(
+            "the backend does not keep file contents as local files".to_string(),
+        ))
     }
 
     /// Reads the target of a symlink from the backend. Returns the target path.

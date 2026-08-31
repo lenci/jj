@@ -16,9 +16,8 @@
 
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use std::fs::Metadata;
 use std::num::NonZeroUsize;
-use std::path::Path;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -246,17 +245,26 @@ impl Store {
         self.backend.write_file(path, contents).await
     }
 
-    pub async fn copy_file_to(
-        &self,
-        path: &RepoPath,
-        id: &FileId,
-        destination: &Path,
-    ) -> BackendResult<Metadata> {
-        self.backend.copy_file_to(path, id, destination).await
+    pub fn stores_files(&self) -> bool {
+        self.backend.stores_files()
     }
 
-    pub async fn copy_file_from(&self, path: &RepoPath, source: &Path) -> BackendResult<FileId> {
-        self.backend.copy_file_from(path, source).await
+    pub async fn stored_file_path(&self, path: &RepoPath, id: &FileId) -> BackendResult<PathBuf> {
+        self.backend.stored_file_path(path, id).await
+    }
+
+    pub async fn incoming_file_path(&self) -> BackendResult<PathBuf> {
+        self.backend.incoming_file_path().await
+    }
+
+    pub async fn persist_incoming_file(
+        &self,
+        path: &RepoPath,
+        incoming_file_path: PathBuf,
+    ) -> BackendResult<FileId> {
+        self.backend
+            .persist_incoming_file(path, incoming_file_path)
+            .await
     }
 
     pub async fn read_symlink(&self, path: &RepoPath, id: &SymlinkId) -> BackendResult<String> {
